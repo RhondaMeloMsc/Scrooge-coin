@@ -1,0 +1,214 @@
+Let's do a plain-English breakdown of your TxHandler.java code, block by block.
+Think of this code as the "Rulebook for a Bank Teller" 👩‍⚖️. Its job is to look at transactions and make sure nobody is cheating, spending money they don't have, or spending the same money twice.
+
+
+Imports and Class Definition
+
+Java
+
+import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+public class TxHandler {
+	•	Plain English: These are the "tools" we're importing from Java's standard library. We're telling the code we'll need tools for handling security (PublicKey), making lists (ArrayList, List), managing groups of unique items (HashSet, Set), and helping with arrays (Arrays).
+	•	public class TxHandler { ... } is us saying, "I'm creating the official 'Transaction Handler' rulebook."
+
+
+The Teller's Ledger
+
+Java
+
+    private UTXOPool internalPool;
+	•	Plain English: This is the teller's own personal ledger.
+	•	A UTXOPool is just a list of all the Unspent Transaction Outputs (think: all the spendable coins or uncashed checks) in the system.
+	•	private means only the teller (this TxHandler class) can look at or change it.
+
+
+Starting the Teller's Shift (The Constructor)
+
+Java
+
+    public TxHandler(UTXOPool utxoPool) {
+        // Defensive copy
+        this.internalPool = new UTXOPool(utxoPool);
+    }
+	•	Plain English: This is what happens when the teller starts their shift.
+	•	They are handed the bank's official master ledger (utxoPool).
+	•	The line this.internalPool = new UTXOPool(utxoPool); is crucial. It means the teller makes a photocopy of the master ledger.
+	•	This is a "defensive copy" so that as the teller processes new transactions, they are writing on their photocopy and not messing up the bank's official record.
+
+
+The 5-Point Check-list (isValidTx)
+
+This is the most important method. It's the teller's checklist for a single transaction. It must pass all five tests.
+Java
+
+    public boolean isValidTx(Transaction tx) {
+        if (tx == null) {
+            return false;
+        }
+
+        HashSet<UTXO> claimedUTXOs = new HashSet<>();
+        double inputSum = 0;
+        double outputSum = 0;
+	•	Plain English: This starts the check.
+	◦	if (tx == null): "If someone hands me a blank piece of paper, it's invalid."
+	◦	claimedUTXOs = new HashSet<>(): "I'm pulling out a new, blank scrap of paper." This is to track all the coins this one transaction is trying to spend, to make sure it doesn't try to spend the same coin twice.
+	◦	inputSum = 0; outputSum = 0;: "I'm setting my 'Money IN' and 'Money OUT' counters to zero."
+
+
+Checking the Inputs (Money IN)
+
+Java
+
+        for (int i = 0; i < tx.numInputs(); i++) {
+            // ... get the input ...
+            UTXO utxo = new UTXO(input.prevTxHash, input.outputIndex);
+	•	Plain English: "I'm going to loop through every 'input' (every coin being spent) in this transaction."
+	•	UTXO utxo = ...: "I'm looking at the 'serial number' of the coin this input claims to be."
+Java
+
+            // (1) Check if the claimed UTXO is in the pool
+            if (!this.internalPool.contains(utxo)) {
+                return false;
+            }
+	•	Rule (1): "Does this coin's serial number even exist in my ledger of spendable coins? No? INVALID."
+Java
+
+            // (3) Check if this UTXO has already been claimed in this same transaction
+            if (claimedUTXOs.contains(utxo)) {
+                return false;
+            }
+            claimedUTXOs.add(utxo);
+	•	Rule (3): "Have I seen this exact coin already in this same transaction? (Check my scrap paper). Yes? This is a double-spend! INVALID."
+	•	claimedUTXOs.add(utxo);: "Okay, it's a new coin. I'll write its serial number on my scrap paper so I can't be fooled again."
+Java
+
+            // ... get the corresponding output ...
+            // (2) Check the signature
+            if (!Crypto.verifySignature(pubKey, message, signature)) {
+                return false;
+            }
+	•	Rule (2): "I'll look up this coin in my ledger to see who owns it (pubKey). Now I'll check the signature on the transaction. Does the owner's signature match? No? INVALID."
+Java
+
+            // (5) Add to the sum of input values
+            inputSum += correspondingOutput.value;
+        }
+	•	Rule (5) (Part 1): "The signature is good! I'll add this coin's value to my 'Money IN' counter."
+
+
+Checking the Outputs (Money OUT)
+
+Java
+
+        for (Transaction.Output output : tx.getOutputs()) {
+            // ...
+            // (4) Check for non-negative output values
+            if (output.value < 0) {
+                return false;
+            }
+            // (5) Add to the sum of output values
+            outputSum += output.value;
+        }
+	•	Plain English: "Now I'll loop through all the 'outputs' (the new coins this transaction is creating)."
+	•	Rule (4): "Is this new coin trying to have a negative value? That's impossible. INVALID."
+	•	Rule (5) (Part 2): "Okay, it's a positive value. I'll add it to my 'Money OUT' counter."
+
+
+Final Check
+
+Java
+
+        // (5) Check if input sum is greater than or equal to output sum
+        if (inputSum < outputSum) {
+            return false;
+        }
+
+        // If all checks pass
+        return true;
+    }
+	•	Rule (5) (Final): "Let's look at my counters. Is the 'Money IN' total less than the 'Money OUT' total? Are they trying to create money from thin air? INVALID."
+	•	return true;: "If the transaction passed all 5 checks, I'll stamp it VALID."
+
+
+Processing a Whole Pile of Transactions (handleTxs)
+
+This is where the teller processes a big pile of transactions that arrived at the same time.
+Java
+
+    public Transaction[] handleTxs(Transaction[] possibleTxs) {
+        // ...
+        List<Transaction> acceptedTxs = new ArrayList<>();
+        Set<Transaction> unprocessedTxs = new HashSet<>(Arrays.asList(possibleTxs));
+
+        boolean progressMade = true;
+	•	Plain English:
+	◦	acceptedTxs: "I'm starting a new, empty 'Approved Pile' for the transactions that pass."
+	◦	unprocessedTxs: "I'm making a copy of the whole pile I was given, this is my 'To-Do Pile'."
+	◦	progressMade = true;: "I'm setting a flag to true to make sure my processing loop starts."
+Java
+
+        while (progressMade) {
+            progressMade = false;
+            Set<Transaction> processedInThisPass = new HashSet<>();
+
+            for (Transaction tx : unprocessedTxs) {
+                if (isValidTx(tx)) {
+	•	Plain English:
+	◦	while (progressMade): "I will keep looping through my 'To-Do Pile' as long as I am making progress." (This is the clever part!)
+	◦	progressMade = false;: "At the start of each pass, I'll assume I'm not going to make progress."
+	◦	processedInThisPass: "I'm getting a new blank scrap of paper to track what I approve this pass."
+	◦	for (Transaction tx : unprocessedTxs): "Look at every transaction in the 'To-Do Pile'."
+	◦	if (isValidTx(tx)): "Run my 5-point checklist on it."
+Java
+
+                    // Transaction is valid, accept it
+                    progressMade = true;
+                    acceptedTxs.add(tx);
+                    processedInThisPass.add(tx);
+	•	Plain English: "Hey, this one is valid!"
+	◦	progressMade = true;: "Flip my flag to true! This tells the while loop to run at least one more time after this pass is done. (This is to handle dependencies—a transaction that fails now might pass later)."
+	◦	acceptedTxs.add(tx);: "Put this transaction on the final 'Approved Pile'."
+	◦	processedInThisPass.add(tx);: "Write this one down on my scrap paper to remove from the 'To-Do Pile' later."
+Java
+
+                    // Update the internal UTXO pool
+                    // 1. Remove spent UTXOs (inputs)
+                    for (Transaction.Input input : tx.getInputs()) {
+                        UTXO spentUTXO = new UTXO(input.prevTxHash, input.outputIndex);
+                        this.internalPool.removeUTXO(spentUTXO);
+                    }
+
+                    // 2. Add new UTXOs (outputs)
+                    byte[] txHash = tx.getHash();
+                    for (int i = 0; i < tx.numOutputs(); i++) {
+                        UTXO newUTXO = new UTXO(txHash, i);
+                        this.internalPool.addUTXO(newUTXO, newOutput);
+                    }
+	•	Plain English: "This is the most important part: I am now updating my photocopy of the ledger."
+	◦	Loop 1 (Inputs): "Find every coin this transaction spent..."
+	◦	...removeUTXO(...): "...and cross it off my ledger. It's spent. It can't be spent again."
+	◦	Loop 2 (Outputs): "Find every coin this transaction created..."
+	◦	...addUTXO(...): "...and add it to my ledger. This is now a new, spendable coin."
+Java
+
+            }
+            // Remove all processed transactions from the main set
+            unprocessedTxs.removeAll(processedInThisPass);
+        }
+	•	Plain English:
+	◦	"I've finished one pass through the 'To-Do Pile'."
+	◦	unprocessedTxs.removeAll(...): "Now I'll take my scrap paper (processedInThisPass) and remove all the transactions I just approved from the 'To-Do Pile' so I don't check them again."
+	◦	"Now, the while loop checks: 'Was progressMade set to true?' If yes, it means I approved at least one transaction, which might have just made other transactions in the 'To-Do Pile' valid. So, I'll loop again. If progressMade is still false, it means I went through the whole pile and couldn't approve anything, so my job is done."
+Java
+
+        // Convert the list of accepted transactions to an array
+        return acceptedTxs.toArray(new Transaction[acceptedTxs.size()]);
+    }
+}
+	•	Plain English: "Finally, I take my 'Approved Pile', convert it into a final list, and hand it back."
